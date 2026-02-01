@@ -1,0 +1,621 @@
+// X-like SNS (mobile) - front only MVP
+// Data is stored in localStorage: user + posts
+
+const LS_USER = "xls_user_v1";
+const LS_POSTS = "xls_posts_v1";
+
+const AVATARS = ["🟢","🟣","🔵","🟡","🟠","🔴","🐻","🐼","🦊","🐯","🐸","🐧","🦄","🐱","🐶","🐰","🐹","🦖"];
+
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => [...document.querySelectorAll(sel)];
+
+const state = {
+  view: "timeline",
+  user: null,
+  posts: [],
+  composing: {
+    thumbUrl: "",
+    thumbText: "",
+    blocks: []
+  }
+};
+
+// ---------- utils ----------
+function uid(){
+  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+function nowISO(){ return new Date().toISOString(); }
+function fmtTime(iso){
+  try{
+    const d = new Date(iso);
+    const mm = (d.getMonth()+1).toString().padStart(2,"0");
+    const dd = d.getDate().toString().padStart(2,"0");
+    const hh = d.getHours().toString().padStart(2,"0");
+    const mi = d.getMinutes().toString().padStart(2,"0");
+    return `${mm}/${dd} ${hh}:${mi}`;
+  }catch{ return ""; }
+}
+function saveUser(user){ localStorage.setItem(LS_USER, JSON.stringify(user)); }
+function loadUser(){
+  const raw = localStorage.getItem(LS_USER);
+  if(!raw) return null;
+  try{ return JSON.parse(raw); }catch{ return null; }
+}
+function savePosts(posts){ localStorage.setItem(LS_POSTS, JSON.stringify(posts)); }
+function loadPosts(){
+  const raw = localStorage.getItem(LS_POSTS);
+  if(!raw) return [];
+  try{ return JSON.parse(raw); }catch{ return []; }
+}
+
+// ---------- routing / view ----------
+function setTopbarTitle(){
+  const map = { timeline:"タイムライン", search:"検索", dm:"DM", profile:"プロフィール", compose:"投稿", detail:"投稿" };
+  $("#topbarTitle").textContent = map[state.view] || "X-like";
+}
+function go(view){
+  state.view = view;
+  setTopbarTitle();
+
+  $$(".view").forEach(v => v.classList.add("hidden"));
+  const el = document.querySelector(`[data-view="${view}"]`);
+  if(el) el.classList.remove("hidden");
+
+  $$(".navBtn").forEach(b => b.classList.toggle("is-active", b.dataset.go === view));
+
+  // render view
+  if(view === "timeline") renderFeed();
+  if(view === "search") renderSearch();
+  if(view === "profile") renderProfile();
+  if(view === "compose") renderCompose();
+}
+
+function openDetail(postId){
+  const p = state.posts.find(x => x.id === postId);
+  if(!p) return;
+  const wrap = $("#postDetail");
+  wrap.innerHTML = "";
+  const head = document.createElement("div");
+  head.className = "cardHead";
+  head.innerHTML = `
+    <div class="avatar">${escapeHTML(state.user.avatar)}</div>
+    <div class="nameLine">
+      <div class="name">${escapeHTML(state.user.name)}</div>
+      <div class="time">${fmtTime(p.createdAt)}</div>
+    </div>
+  `;
+  const body = document.createElement("div");
+  body.className = "cardBody render";
+  body.innerHTML = `
+    ${p.thumb?.url ? `<img class="thumb" src="${escapeAttr(p.thumb.url)}" alt="thumb">` : ""}
+    ${p.thumb?.text ? `<div class="postDetailTitle">${escapeHTML(p.thumb.text)}</div>` : ""}
+    ${renderBlocksHTML(p.blocks || [])}
+  `;
+  wrap.appendChild(head);
+  wrap.appendChild(body);
+  go("detail");
+}
+
+// ---------- rendering ----------
+function escapeHTML(s){ return String(s ?? "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m])); }
+function escapeAttr(s){ return escapeHTML(s).replace(/"/g, "&quot;"); }
+
+function renderFeed(){
+  const feed = $("#feed");
+  feed.innerHTML = "";
+
+  if(state.posts.length === 0){
+    const empty = document.createElement("div");
+    empty.className = "muted";
+    empty.innerHTML = "まだ投稿がありません。右下の＋から投稿してみてください。";
+    feed.appendChild(empty);
+    return;
+  }
+
+  state.posts
+    .slice()
+    .sort((a,b)=> (b.createdAt||"").localeCompare(a.createdAt||""))
+    .forEach(p => {
+      const card = document.createElement("article");
+      card.className = "card";
+      card.innerHTML = `
+        <div class="cardHead">
+          <div class="avatar">${escapeHTML(state.user.avatar)}</div>
+          <div class="nameLine">
+            <div class="name">${escapeHTML(state.user.name)}</div>
+            <div class="time">${fmtTime(p.createdAt)}</div>
+          </div>
+        </div>
+        ${p.thumb?.url ? `<img class="thumb" src="${escapeAttr(p.thumb.url)}" alt="thumb">` : ""}
+        <div class="cardBody">
+          <div class="thumbText">${escapeHTML(p.thumb?.text || "")}</div>
+        </div>
+      `;
+      card.addEventListener("click", ()=> openDetail(p.id));
+      feed.appendChild(card);
+    });
+}
+
+function renderSearch(){
+  const q = ($("#searchInput").value || "").trim().toLowerCase();
+  const out = $("#searchResults");
+  out.innerHTML = "";
+  if(!q){
+    out.innerHTML = `<div class="muted">キーワードを入力すると結果が表示されます。</div>`;
+    return;
+  }
+  const hits = state.posts.filter(p => {
+    const t = (p.thumb?.text || "").toLowerCase();
+    const b = JSON.stringify(p.blocks || []).toLowerCase();
+    return t.includes(q) || b.includes(q);
+  });
+  if(hits.length === 0){
+    out.innerHTML = `<div class="muted">見つかりませんでした。</div>`;
+    return;
+  }
+  hits.forEach(p => {
+    const card = document.createElement("article");
+    card.className = "card";
+    card.innerHTML = `
+      <div class="cardHead">
+        <div class="avatar">${escapeHTML(state.user.avatar)}</div>
+        <div class="nameLine">
+          <div class="name">${escapeHTML(state.user.name)}</div>
+          <div class="time">${fmtTime(p.createdAt)}</div>
+        </div>
+      </div>
+      ${p.thumb?.url ? `<img class="thumb" src="${escapeAttr(p.thumb.url)}" alt="thumb">` : ""}
+      <div class="cardBody">
+        <div class="thumbText">${escapeHTML(p.thumb?.text || "")}</div>
+      </div>
+    `;
+    card.addEventListener("click", ()=> openDetail(p.id));
+    out.appendChild(card);
+  });
+}
+
+function renderProfile(){
+  $("#meName").textContent = state.user?.name || "";
+  $("#meAvatarMini").textContent = state.user?.avatar || "🙂";
+  $("#meAvatarBig").textContent = state.user?.avatar || "🙂";
+
+  const mine = $("#myPosts");
+  mine.innerHTML = "";
+
+  const my = state.posts
+    .slice()
+    .sort((a,b)=> (b.createdAt||"").localeCompare(a.createdAt||""))
+    .filter(p => p.authorId === state.user.id);
+
+  if(my.length === 0){
+    mine.innerHTML = `<div class="muted">自分の投稿はまだありません。</div>`;
+    return;
+  }
+
+  my.forEach(p => {
+    const card = document.createElement("article");
+    card.className = "card";
+    card.innerHTML = `
+      <div class="cardHead">
+        <div class="avatar">${escapeHTML(state.user.avatar)}</div>
+        <div class="nameLine">
+          <div class="name">${escapeHTML(state.user.name)}</div>
+          <div class="time">${fmtTime(p.createdAt)}</div>
+        </div>
+      </div>
+      ${p.thumb?.url ? `<img class="thumb" src="${escapeAttr(p.thumb.url)}" alt="thumb">` : ""}
+      <div class="cardBody">
+        <div class="thumbText">${escapeHTML(p.thumb?.text || "")}</div>
+      </div>
+    `;
+    card.addEventListener("click", ()=> openDetail(p.id));
+    mine.appendChild(card);
+  });
+}
+
+// ---------- compose editor ----------
+function newBlock(type){
+  const id = uid();
+  if(type === "heading") return { id, type, text: "" };
+  if(type === "paragraph") return { id, type, text: "" };
+  if(type === "link") return { id, type, label: "", url: "" };
+  if(type === "image") return { id, type, url: "" };
+  if(type === "toggle") return { id, type, title: "", open: true, children: [] };
+  return { id, type:"paragraph", text:"" };
+}
+
+function renderCompose(){
+  $("#thumbUrl").value = state.composing.thumbUrl || "";
+  $("#thumbText").value = state.composing.thumbText || "";
+
+  // preview
+  const img = $("#thumbPreview");
+  if(state.composing.thumbUrl){
+    img.src = state.composing.thumbUrl;
+    img.classList.remove("hidden");
+  }else{
+    img.classList.add("hidden");
+  }
+
+  renderBlocks();
+}
+
+function renderBlocks(){
+  const wrap = $("#blocks");
+  wrap.innerHTML = "";
+  if(state.composing.blocks.length === 0){
+    const muted = document.createElement("div");
+    muted.className = "muted";
+    muted.textContent = "上のボタンからブロックを追加してください（見出し/本文/トグル/リンク/画像）";
+    wrap.appendChild(muted);
+    return;
+  }
+  state.composing.blocks.forEach((b, idx) => {
+    wrap.appendChild(blockEditor(b, idx, state.composing.blocks));
+  });
+}
+
+function blockEditor(block, idx, parentArray){
+  const el = document.createElement("div");
+  el.className = "block";
+
+  const top = document.createElement("div");
+  top.className = "blockTop";
+  top.innerHTML = `
+    <div class="blockType">${block.type}</div>
+    <div class="blockActions">
+      <button class="smallBtn" data-act="up">↑</button>
+      <button class="smallBtn" data-act="down">↓</button>
+      <button class="smallBtn" data-act="del">削除</button>
+    </div>
+  `;
+  top.addEventListener("click", (e)=>{
+    const btn = e.target.closest("button");
+    if(!btn) return;
+    const act = btn.dataset.act;
+    if(act === "del"){
+      parentArray.splice(idx,1);
+      renderBlocks();
+    }
+    if(act === "up" && idx > 0){
+      const t = parentArray[idx-1]; parentArray[idx-1] = parentArray[idx]; parentArray[idx] = t;
+      renderBlocks();
+    }
+    if(act === "down" && idx < parentArray.length-1){
+      const t = parentArray[idx+1]; parentArray[idx+1] = parentArray[idx]; parentArray[idx] = t;
+      renderBlocks();
+    }
+  });
+
+  el.appendChild(top);
+
+  if(block.type === "heading" || block.type === "paragraph"){
+    const ta = document.createElement("textarea");
+    ta.rows = block.type === "heading" ? 2 : 5;
+    ta.placeholder = block.type === "heading" ? "見出しテキスト" : "本文テキスト";
+    ta.value = block.text || "";
+    ta.addEventListener("input", ()=> block.text = ta.value);
+    el.appendChild(ta);
+  }
+
+  if(block.type === "link"){
+    const label = document.createElement("input");
+    label.placeholder = "リンクの表示名";
+    label.value = block.label || "";
+    label.addEventListener("input", ()=> block.label = label.value);
+
+    const url = document.createElement("input");
+    url.placeholder = "https://...";
+    url.value = block.url || "";
+    url.addEventListener("input", ()=> block.url = url.value);
+
+    el.appendChild(label);
+    el.appendChild(spacer(8));
+    el.appendChild(url);
+  }
+
+  if(block.type === "image"){
+    const url = document.createElement("input");
+    url.placeholder = "画像URL（https://...）";
+    url.value = block.url || "";
+    url.addEventListener("input", ()=>{
+      block.url = url.value;
+      // live preview below
+      preview.src = block.url;
+    });
+
+    const preview = document.createElement("img");
+    preview.className = "thumbPreview";
+    preview.alt = "image block preview";
+    preview.style.marginTop = "10px";
+    preview.src = block.url || "";
+    if(!block.url) preview.style.display = "none";
+
+    url.addEventListener("input", ()=>{
+      preview.style.display = block.url ? "block" : "none";
+    });
+
+    el.appendChild(url);
+    el.appendChild(preview);
+  }
+
+  if(block.type === "toggle"){
+    const row = document.createElement("div");
+    row.className = "toggleHeaderRow";
+
+    const btn = document.createElement("button");
+    btn.className = "toggleBtn";
+    btn.textContent = block.open ? "−" : "+";
+    btn.addEventListener("click", ()=>{
+      block.open = !block.open;
+      renderBlocks();
+    });
+
+    const title = document.createElement("input");
+    title.placeholder = "トグルのタイトル";
+    title.value = block.title || "";
+    title.addEventListener("input", ()=> block.title = title.value);
+
+    row.appendChild(btn);
+    row.appendChild(title);
+    el.appendChild(row);
+
+    const body = document.createElement("div");
+    body.className = "toggleBody";
+    body.style.display = block.open ? "block" : "none";
+
+    const childTools = document.createElement("div");
+    childTools.style.display = "flex";
+    childTools.style.gap = "8px";
+    childTools.style.flexWrap = "wrap";
+    childTools.style.margin = "8px 0";
+
+    ["heading","paragraph","link","image"].forEach(t=>{
+      const bbtn = document.createElement("button");
+      bbtn.className = "smallBtn";
+      bbtn.textContent = `＋${t}`;
+      bbtn.addEventListener("click", ()=>{
+        block.children = block.children || [];
+        block.children.push(newBlock(t));
+        renderBlocks();
+      });
+      childTools.appendChild(bbtn);
+    });
+
+    body.appendChild(childTools);
+
+    const childWrap = document.createElement("div");
+    childWrap.style.display = "flex";
+    childWrap.style.flexDirection = "column";
+    childWrap.style.gap = "10px";
+
+    (block.children || []).forEach((child, cidx)=>{
+      childWrap.appendChild(blockEditor(child, cidx, block.children));
+    });
+
+    body.appendChild(childWrap);
+    el.appendChild(body);
+  }
+
+  return el;
+}
+
+function spacer(h){
+  const d = document.createElement("div");
+  d.style.height = `${h}px`;
+  return d;
+}
+
+function renderBlocksHTML(blocks){
+  // minimal renderer for our JSON blocks
+  let html = "";
+  for(const b of blocks){
+    if(b.type === "heading"){
+      html += `<h1>${escapeHTML(b.text || "")}</h1>`;
+    }else if(b.type === "paragraph"){
+      const safe = escapeHTML(b.text || "").replace(/\n/g,"<br/>");
+      html += `<p>${safe}</p>`;
+    }else if(b.type === "link"){
+      const label = escapeHTML(b.label || b.url || "link");
+      const url = escapeAttr(b.url || "#");
+      html += `<p><a href="${url}" target="_blank" rel="noreferrer">${label}</a></p>`;
+    }else if(b.type === "image"){
+      if(b.url) html += `<img src="${escapeAttr(b.url)}" alt="image"/>`;
+    }else if(b.type === "toggle"){
+      const title = escapeHTML(b.title || "Toggle");
+      const inner = renderBlocksHTML(b.children || []);
+      html += `
+        <div class="block" style="margin:10px 0;">
+          <div style="font-weight:900;">▶ ${title}</div>
+          <div style="margin-top:8px; opacity:.96;">${inner}</div>
+        </div>
+      `;
+    }
+  }
+  return html;
+}
+
+// ---------- onboarding / profile edit ----------
+function showOnboarding(){
+  $("#onboarding").classList.remove("hidden");
+  $("#onbName").value = "";
+  renderAvatarGrid("#avatarGrid", null, (a)=> { state._onbAvatar = a; });
+  state._onbAvatar = AVATARS[0];
+}
+
+function renderAvatarGrid(targetSel, selected, onPick){
+  const grid = $(targetSel);
+  grid.innerHTML = "";
+  AVATARS.forEach(a=>{
+    const b = document.createElement("button");
+    b.className = "avatarPick" + (a===selected ? " is-selected" : "");
+    b.type = "button";
+    b.textContent = a;
+    b.addEventListener("click", ()=>{
+      grid.querySelectorAll(".avatarPick").forEach(x=> x.classList.remove("is-selected"));
+      b.classList.add("is-selected");
+      onPick(a);
+    });
+    grid.appendChild(b);
+  });
+  // select first by default
+  const first = grid.querySelector(".avatarPick");
+  if(first) first.classList.add("is-selected");
+}
+
+function openProfileEdit(){
+  $("#profileEdit").classList.remove("hidden");
+  $("#editName").value = state.user.name;
+  renderAvatarGrid("#avatarGridEdit", state.user.avatar, (a)=> { state._editAvatar = a; });
+  state._editAvatar = state.user.avatar;
+}
+
+function closeProfileEdit(){
+  $("#profileEdit").classList.add("hidden");
+}
+
+// ---------- events ----------
+function wire(){
+  // bottom nav
+  $$(".navBtn").forEach(b=>{
+    b.addEventListener("click", ()=> go(b.dataset.go));
+  });
+
+  // profile icon in top-left
+  $("#btnProfile").addEventListener("click", ()=> go("profile"));
+
+  // fab
+  $("#fabCompose").addEventListener("click", ()=>{
+    // reset compose state
+    state.composing = { thumbUrl:"", thumbText:"", blocks:[] };
+    $("#thumbPreview").classList.add("hidden");
+    go("compose");
+  });
+
+  // compose toolbar
+  $$(".tool").forEach(t=>{
+    t.addEventListener("click", ()=>{
+      const type = t.dataset.add;
+      state.composing.blocks.push(newBlock(type));
+      renderBlocks();
+    });
+  });
+
+  // thumb url live
+  $("#thumbUrl").addEventListener("input", ()=>{
+    state.composing.thumbUrl = $("#thumbUrl").value.trim();
+    const img = $("#thumbPreview");
+    if(state.composing.thumbUrl){
+      img.src = state.composing.thumbUrl;
+      img.classList.remove("hidden");
+    }else{
+      img.classList.add("hidden");
+    }
+  });
+
+  // thumb file -> dataURL
+  $("#thumbFile").addEventListener("change", async ()=>{
+    const f = $("#thumbFile").files?.[0];
+    if(!f) return;
+    const dataUrl = await fileToDataURL(f);
+    state.composing.thumbUrl = dataUrl;
+    $("#thumbUrl").value = "";
+    const img = $("#thumbPreview");
+    img.src = dataUrl;
+    img.classList.remove("hidden");
+  });
+
+  $("#thumbText").addEventListener("input", ()=>{
+    state.composing.thumbText = $("#thumbText").value;
+  });
+
+  $("#btnCancelCompose").addEventListener("click", ()=> go("timeline"));
+
+  $("#btnPublish").addEventListener("click", ()=>{
+    const post = {
+      id: uid(),
+      authorId: state.user.id,
+      createdAt: nowISO(),
+      thumb: {
+        url: state.composing.thumbUrl || "",
+        text: state.composing.thumbText || ""
+      },
+      blocks: state.composing.blocks || []
+    };
+    state.posts.push(post);
+    savePosts(state.posts);
+    go("timeline");
+  });
+
+  $("#btnBackDetail").addEventListener("click", ()=> go("timeline"));
+
+  $("#searchInput").addEventListener("input", renderSearch);
+
+  // onboarding done
+  $("#btnOnbDone").addEventListener("click", ()=>{
+    const name = ($("#onbName").value || "").trim();
+    const avatar = state._onbAvatar || AVATARS[0];
+    if(!name){
+      alert("名前を入力してください");
+      return;
+    }
+    const user = { id: uid(), name, avatar };
+    state.user = user;
+    saveUser(user);
+    $("#onboarding").classList.add("hidden");
+    renderProfile();
+    renderFeed();
+  });
+
+  $("#btnEditProfile").addEventListener("click", openProfileEdit);
+  $("#btnEditCancel").addEventListener("click", closeProfileEdit);
+
+  $("#btnEditSave").addEventListener("click", ()=>{
+    const name = ($("#editName").value || "").trim();
+    if(!name){
+      alert("名前を入力してください");
+      return;
+    }
+    state.user.name = name;
+    state.user.avatar = state._editAvatar || state.user.avatar;
+    saveUser(state.user);
+    closeProfileEdit();
+    renderProfile();
+    renderFeed();
+  });
+
+  $("#btnResetAll").addEventListener("click", ()=>{
+    const ok = confirm("全部初期化します。よろしいですか？");
+    if(!ok) return;
+    localStorage.removeItem(LS_USER);
+    localStorage.removeItem(LS_POSTS);
+    location.reload();
+  });
+}
+
+function fileToDataURL(file){
+  return new Promise((resolve, reject)=>{
+    const r = new FileReader();
+    r.onload = ()=> resolve(String(r.result));
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+// ---------- boot ----------
+function boot(){
+  state.user = loadUser();
+  state.posts = loadPosts();
+
+  wire();
+
+  if(!state.user){
+    showOnboarding();
+  }else{
+    $("#meAvatarMini").textContent = state.user.avatar;
+    renderFeed();
+  }
+  go("timeline");
+}
+
+boot();

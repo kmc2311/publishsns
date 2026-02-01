@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>X-like SNS (Mobile)</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app" class="app">
+    <!-- Top Bar -->
+    <header class="topbar">
+      <button class="iconBtn" id="btnProfile" aria-label="プロフィール">
+        <span class="avatar mini" id="meAvatarMini"></span>
+      </button>
+      <div class="topbarTitle" id="topbarTitle">タイムライン</div>
+      <button class="iconBtn ghost" id="btnMore" aria-label="メニュー">
+  <span class="dot3">•••</span>
+</button>
+
+    </header>
+
+    <!-- Main -->
+    <main class="main">
+      <!-- Timeline -->
+      <section class="view" data-view="timeline" id="viewTimeline">
+        <div class="feed" id="feed"></div>
+        <div class="hint">右下の＋から投稿できます</div>
+      </section>
+
+      <!-- Search -->
+      <section class="view hidden" data-view="search" id="viewSearch">
+        <div class="panel">
+          <div class="panelTitle">検索</div>
+          <input class="input" id="searchInput" placeholder="キーワードで検索（サムネ文 / 本文）" />
+          <div class="feed" id="searchResults"></div>
+        </div>
+      </section>
+
+            <!-- DM -->
+      <section class="view hidden" data-view="dm" id="viewDM">
+        <div class="panel">
+          <div class="dmHeader">
+            <div class="panelTitle" style="margin:0;">DM</div>
+            <button class="btn ghost dmNewBtn" id="btnNewDM">＋新規</button>
+          </div>
+
+          <!-- Threads -->
+          <div class="dmThreads" id="dmThreads"></div>
+
+          <!-- Chat -->
+          <div class="dmChat hidden" id="dmChat">
+            <div class="dmChatTop">
+              <button class="btn ghost dmBackBtn" id="btnBackDM">←</button>
+              <div class="dmChatTitle">
+                <div class="avatar mini" id="dmChatAvatar"></div>
+                <div class="dmChatName" id="dmChatName"></div>
+              </div>
+            </div>
+
+            <div class="dmMessages" id="dmMessages"></div>
+
+            <div class="dmComposer">
+              <input class="input dmInput" id="dmInput" placeholder="メッセージを入力…" />
+              <button class="btn dmSend" id="btnSendDM">送信</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Publish -->
+      <section class="view hidden" data-view="publish" id="viewPublish">
+        <div class="panel">
+          <div class="panelTitle">出版ページ</div>
+          <div class="muted">
+            今までの投稿から「本にしたい投稿」を選んでください。<br/>
+            （今回はエディタは作らず、外部サイトへ遷移するボタンだけ用意します）
+          </div>
+
+          <div class="row mt">
+            <button class="btn ghost" id="btnBackPublish">← 戻る</button>
+            <button class="btn" id="btnGoEditor" disabled>専用エディタへ（外部）</button>
+          </div>
+
+          <div class="publishList mt" id="publishList"></div>
+        </div>
+      </section>
+
+
+
+        </div>
+      </section>
+
+      <!-- Profile -->
+      <section class="view hidden" data-view="profile" id="viewProfile">
+        <div class="panel">
+          <div class="profileHeader">
+            <div class="avatar big" id="meAvatarBig"></div>
+            <div class="meInfo">
+              <div class="meName" id="meName"></div>
+              <div class="meSub muted">@me</div>
+            </div>
+          </div>
+
+          <div class="row">
+            <button class="btn" id="btnEditProfile">プロフィール編集</button>
+            <button class="btn ghost" id="btnResetAll">初期化</button>
+          </div>
+
+          <div class="panelTitle mt">自分の投稿</div>
+          <div class="feed" id="myPosts"></div>
+        </div>
+      </section>
+
+      <!-- Compose (投稿画面) -->
+      <section class="view hidden" data-view="compose" id="viewCompose">
+        <div class="panel">
+          <div class="panelTitle">新規投稿</div>
+
+          <label class="label">サムネイル画像（URL or 画像アップ）</label>
+          <div class="row">
+            <input class="input" id="thumbUrl" placeholder="https://..." />
+            <label class="btn ghost fileBtn">
+              画像
+              <input type="file" id="thumbFile" accept="image/*" hidden />
+            </label>
+          </div>
+          <div class="thumbPreviewWrap">
+            <img id="thumbPreview" class="thumbPreview hidden" alt="thumb preview" />
+          </div>
+
+          <label class="label mt">サムネイル用文章</label>
+          <textarea class="textarea" id="thumbText" rows="2" placeholder="タイムラインに表示される短文"></textarea>
+
+          <label class="label mt">本文（Notionっぽい簡易エディタ）</label>
+          <div class="editor">
+            <div class="toolbar">
+              <button class="tool" data-add="heading">見出し</button>
+              <button class="tool" data-add="paragraph">本文</button>
+              <button class="tool" data-add="toggle">トグル</button>
+              <button class="tool" data-add="link">リンク</button>
+              <button class="tool" data-add="image">画像</button>
+            </div>
+            <div class="blocks" id="blocks"></div>
+          </div>
+
+          <div class="row mt">
+            <button class="btn ghost" id="btnCancelCompose">キャンセル</button>
+            <button class="btn" id="btnPublish">投稿</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Post Detail -->
+      <section class="view hidden" data-view="detail" id="viewDetail">
+        <div class="panel">
+          <button class="btn ghost" id="btnBackDetail">← 戻る</button>
+          <div class="postDetail" id="postDetail"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Bottom Nav -->
+    <nav class="bottomNav">
+      <button class="navBtn is-active" data-go="timeline">
+        <div class="navIcon">🏠</div><div class="navLabel">TL</div>
+      </button>
+      <button class="navBtn" data-go="search">
+        <div class="navIcon">🔎</div><div class="navLabel">検索</div>
+      </button>
+      <button class="navBtn" data-go="dm">
+        <div class="navIcon">✉️</div><div class="navLabel">DM</div>
+      </button>
+      <button class="navBtn" data-go="profile">
+        <div class="navIcon">👤</div><div class="navLabel">自分</div>
+      </button>
+    </nav>
+
+    <!-- Floating Compose Button -->
+    <button class="fab" id="fabCompose" aria-label="投稿">＋</button>
+
+    <!-- Onboarding Modal -->
+    <div class="modal hidden" id="onboarding">
+      <div class="modalSheet">
+        <div class="modalTitle">初回登録</div>
+        <div class="modalDesc muted">名前とアイコンを設定してください（アイコンはサンプルから選択）</div>
+
+        <label class="label mt">名前</label>
+        <input class="input" id="onbName" placeholder="例：きさき" />
+
+        <div class="label mt">アイコン</div>
+        <div class="avatarGrid" id="avatarGrid"></div>
+
+        <div class="row mt">
+          <button class="btn" id="btnOnbDone">はじめる</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Profile Edit Modal -->
+    <div class="modal hidden" id="profileEdit">
+      <div class="modalSheet">
+        <div class="modalTitle">プロフィール編集</div>
+
+        <label class="label mt">名前</label>
+        <input class="input" id="editName" />
+
+        <div class="label mt">アイコン</div>
+        <div class="avatarGrid" id="avatarGridEdit"></div>
+
+        <div class="row mt">
+          <button class="btn ghost" id="btnEditCancel">キャンセル</button>
+          <button class="btn" id="btnEditSave">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- New DM Modal -->
+    <div class="modal hidden" id="dmNewModal">
+      <div class="modalSheet">
+        <div class="modalTitle">新規DM</div>
+        <div class="modalDesc muted">サンプルユーザーを選んで会話を開始します</div>
+
+        <label class="label mt">検索</label>
+        <input class="input" id="dmUserSearch" placeholder="名前で検索…" />
+
+        <div class="dmUserList" id="dmUserList"></div>
+
+        <div class="row mt">
+          <button class="btn ghost" id="btnCloseNewDM">閉じる</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
